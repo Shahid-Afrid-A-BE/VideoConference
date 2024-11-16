@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 
 const WebSocketComponent: React.FC = () => {
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
     const webSocketRef = useRef<WebSocket | null>(null);
     const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-    const [candidateQueue, setCandidateQueue] = useState<RTCIceCandidateInit[]>([]);
+    const candidateQueueRef = useRef<RTCIceCandidateInit[]>([]); // Replacing useState
 
     useEffect(() => {
         // Initialize WebSocket
@@ -16,7 +16,7 @@ const WebSocketComponent: React.FC = () => {
 
         ws.onmessage = async (messageEvent) => {
             const data = JSON.parse(messageEvent.data);
-            console.log("Received signaling message:", data);
+            console.log("Signaling message received:", data);
             await handleSignalingMessage(data);
         };
 
@@ -28,7 +28,9 @@ const WebSocketComponent: React.FC = () => {
     const sendMessage = (message: object) => {
         if (webSocketRef.current?.readyState === WebSocket.OPEN) {
             webSocketRef.current.send(JSON.stringify(message));
-            console.log("Sent signaling message:", message);
+            console.log("Signaling message sent:", message);
+        } else {
+            console.error("WebSocket not open. Message not sent:", message);
         }
     };
 
@@ -41,66 +43,100 @@ const WebSocketComponent: React.FC = () => {
 
         pc.onicecandidate = (event) => {
             if (event.candidate) {
+                console.log("Sending ICE candidate:", event.candidate);
                 sendMessage({ type: "candidate", candidate: event.candidate });
+            } else {
+                console.log("All ICE candidates sent");
             }
         };
 
         pc.ontrack = (event) => {
+            console.log("Received remote track:", event.streams[0]);
             if (remoteVideoRef.current) {
                 remoteVideoRef.current.srcObject = event.streams[0];
             }
         };
 
-        pc.oniceconnectionstatechange = () => {
+        pc.oniceconnectionstatechange = async () => {
             console.log("ICE Connection State:", pc.iceConnectionState);
+            if (pc.iceConnectionState === "connected") {
+                console.log("Processing queued ICE candidates");
+                await processCandidateQueue(pc);
+            }
         };
 
         peerConnectionRef.current = pc;
         return pc;
     };
 
+    const processCandidateQueue = async (pc: RTCPeerConnection) => {
+        console.log("Processing queued candidates");
+        while (candidateQueueRef.current.length > 0) {
+            const candidate = candidateQueueRef.current.shift();
+            if (candidate) {
+                console.log("Adding queued candidate:", candidate);
+                await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            }
+        }
+    };
+
     const handleSignalingMessage = async (data: any) => {
         const pc = initializePeerConnection();
 
         switch (data.type) {
-            case "offer":
-                console.log("Received offer");
+        case "offer":
+            console.log("Received offer");
+            try {
                 await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+                console.log("Remote description set for offer");
+                console.log("Remote description set for offer:", pc.remoteDescription);
                 const answer = await pc.createAnswer();
                 await pc.setLocalDescription(answer);
                 sendMessage({ type: "answer", answer });
-                break;
 
-            case "answer":
-                console.log("Received answer");
+                // Process queued candidates after setting remote description
+                await processCandidateQueue(pc);
+            } catch (error) {
+                console.error("Error setting remote description for offer:", error);
+            }
+            break;
+
+        case "answer":
+            console.log("Received answer");
+            try {
                 if (pc.signalingState === "have-local-offer") {
                     await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+                    console.log("Remote description set for answer");
+                    console.log("Remote description set for offer:", pc.remoteDescription);
+
+                    // Process queued candidates
+                    await processCandidateQueue(pc);
                 } else {
                     console.error("Invalid state for setting remote answer");
                 }
-                break;
+            } catch (error) {
+                console.error("Error setting remote description for answer:", error);
+            }
+            break;
 
-            case "candidate":
-                console.log("Received ICE candidate");
-                if (pc.remoteDescription) {
+        case "candidate":
+            console.log("Received ICE candidate");
+            if (pc.remoteDescription) {
+                try {
+                    console.log("Adding ICE candidate directly:", data.candidate);
                     await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-                } else {
-                    console.log("Remote description not set yet. Queueing candidate.");
-                    setCandidateQueue((prev) => [...prev, data.candidate]);
+                } catch (error) {
+                    console.error("Error adding ICE candidate:", error);
                 }
-                break;
+            } else {
+                console.log("Remote description not set yet. Queueing candidate.");
+                candidateQueueRef.current.push(data.candidate);
+            }
+            break;
 
-            default:
-                console.log("Unknown signaling message type:", data.type);
-        }
-    };
-
-    const processCandidateQueue = async (pc: RTCPeerConnection) => {
-        console.log("Processing queued candidates");
-        for (const candidate of candidateQueue) {
-            await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        }
-        setCandidateQueue([]);
+        default:
+            console.log("Unknown signaling message type:", data.type);
+    }
     };
 
     const startCall = async () => {
@@ -116,12 +152,6 @@ const WebSocketComponent: React.FC = () => {
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
             sendMessage({ type: "offer", offer });
-
-            pc.oniceconnectionstatechange = async () => {
-                if (pc.iceConnectionState === "connected") {
-                    await processCandidateQueue(pc);
-                }
-            };
         } catch (error) {
             console.error("Error during call initialization:", error);
         }
