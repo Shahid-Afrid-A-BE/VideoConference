@@ -4,7 +4,7 @@ import WebSocketComponent  from './components/WebSocketComponent';
 function App(){
   return(
     <div className="App">
-      <h1>WebSocket Client</h1>
+      <h1>Vedio Conference Tool</h1>
       <WebSocketComponent/>  {/*user defined componet*/}
     </div>
   );
