@@ -52,8 +52,20 @@ const WebSocketComponent: React.FC = () => {
 
         pc.ontrack = (event) => {
             console.log("Received remote track:", event.streams[0]);
-            if (remoteVideoRef.current) {
-                remoteVideoRef.current.srcObject = event.streams[0];
+
+            if (event.streams[0]) {
+                // Check if we have video tracks
+                const videoTracks = event.streams[0].getVideoTracks();
+                if (videoTracks.length > 0) {
+                    console.log("Remote video track found.");
+                    if (remoteVideoRef.current) {
+                        remoteVideoRef.current.srcObject = event.streams[0];
+                    }
+                } else {
+                    console.error("No video track found in the remote stream.");
+                }
+            } else {
+                console.error("No streams found on the remote track.");
             }
         };
 
@@ -89,7 +101,6 @@ const WebSocketComponent: React.FC = () => {
             try {
                 await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
                 console.log("Remote description set for offer");
-                console.log("Remote description set for offer:", pc.remoteDescription);
                 const answer = await pc.createAnswer();
                 await pc.setLocalDescription(answer);
                 sendMessage({ type: "answer", answer });
@@ -107,7 +118,6 @@ const WebSocketComponent: React.FC = () => {
                 if (pc.signalingState === "have-local-offer") {
                     await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
                     console.log("Remote description set for answer");
-                    console.log("Remote description set for offer:", pc.remoteDescription);
 
                     // Process queued candidates
                     await processCandidateQueue(pc);
@@ -136,7 +146,7 @@ const WebSocketComponent: React.FC = () => {
 
         default:
             console.log("Unknown signaling message type:", data.type);
-    }
+        }
     };
 
     const startCall = async () => {
@@ -145,6 +155,8 @@ const WebSocketComponent: React.FC = () => {
         try {
             const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
             localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+
+            // Attach local stream to local video element
             if (localVideoRef.current) {
                 localVideoRef.current.srcObject = localStream;
             }
