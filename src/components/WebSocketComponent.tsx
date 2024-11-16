@@ -165,20 +165,7 @@ const WebSocketComponent: React.FC = () => {
                 localVideoRef.current.srcObject = localStream;
             }
     
-            // Wait for the ICE candidate gathering to complete (optional)
-            console.log("Waiting for ICE candidate gathering to complete...");
-            await new Promise((resolve, reject) => {
-                const timeout = setTimeout(reject, 10000000, 'ICE gathering timeout');
-                if (peerConnection) {
-                    peerConnection.onicegatheringstatechange = () => {
-                        console.log("ICE Gathering State:", peerConnection.iceGatheringState);
-                        if (peerConnection.iceGatheringState === 'complete') {
-                            clearTimeout(timeout);
-                            resolve(null);
-                        }
-                    };
-                }
-            });
+          
     
             // Generate the offer
             console.log("Creating offer...");
