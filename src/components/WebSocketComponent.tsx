@@ -1,192 +1,148 @@
-import React, {useState,useEffect,useRef} from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 const WebSocketComponent: React.FC = () => {
-    const [messages,setMessages] = useState<string[]>([]);
-    const [input,setInput] = useState('');
+    const [messages, setMessages] = useState<string[]>([]);
+    const [input, setInput] = useState('');
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
     const localVideoRef = useRef<HTMLVideoElement>(null);
-    const [peerConnection,setPeerConnection] = useState<RTCPeerConnection | null>(null);
-    const [webSocket,setWebSocket] = useState<WebSocket | null>(null);
-
-    
+    const webSocketRef = useRef<WebSocket | null>(null);
 
     useEffect(() => {
+        console.log("Step 1: Initializing WebSocket connection");
 
-        //init websocket connection
+        // Initialize WebSocket connection
         const ws = new WebSocket('ws://localhost:8090/ws');
-        setWebSocket(ws);
+        webSocketRef.current = ws;
 
-        //handle websocket open event
         ws.onopen = () => {
-            console.log('connected to websocket server');
+            console.log("Step 2: Connected to WebSocket server");
         };
 
-        //handle incoming messages from server
         ws.onmessage = (messageEvent) => {
-            //signalling message from server
-            console.log("Received raw message:", messageEvent.data);
-            const data = JSON.parse(messageEvent.data); //only JSON data can be received
-            console.log("Received JSON data:", data);
+            console.log("Step 3: Received raw message:", messageEvent.data);
+            const data = JSON.parse(messageEvent.data); // Only JSON data can be received
+            console.log("Step 4: Parsed JSON data:", data);
             handleSignallingMessage(data);
         };
 
-        //handle websocket disconnection event
         ws.onclose = () => {
-            console.log("websocket connection ended");
+            console.log("Step 5: WebSocket connection ended");
         };
 
         return () => {
+            console.log("Step 6: Cleaning up WebSocket connection");
             ws.close();
         };
+    }, []);
 
-    },[]);
-
-
+    const sendMessage = (message: object) => {
+        console.log("Step 7: Preparing to send message");
+        if (webSocketRef.current && webSocketRef.current.readyState === WebSocket.OPEN) {
+            webSocketRef.current.send(JSON.stringify(message));
+            console.log("Step 8: Message sent", message);
+        } else {
+            console.error("WebSocket is not open. Message not sent");
+        }
+    };
 
     const handleSignallingMessage = async (data: any) => {
-        console.log("Received signaling message with type:", data.type);
+        console.log("Step 9: Handling signaling message with type:", data.type);
 
-        let pc = peerConnection; //peerConnection value is from useState()
-    
-        // If peerConnection is null and an offer is received, initialize it
-        if (!peerConnection && data.type === "offer") {
-            console.log("peerconnection not initialed but offer signal received");
-            pc = await initializePeerConnection();
-        }
-        console.log(" beu=yound w=switch .....");
-        switch (data.type) {
-            case "offer":
-                if (!pc) 
-                {
-                    console.log("offer ! peer....");
-                    return;
-                }
-                console.log("Setting remote offer...");
-    
-                // Set the remote description and create an answer
-                if (!data.offer || !data.offer.sdp || data.offer.type !== "offer") {
-                    console.error("Invalid offer received:", data.offer);
-                    return;
-                }
-                await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-                const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
-                webSocket?.send(JSON.stringify({ type: "answer", answer }));
-                break;
-    
-            case "answer":
-                if (!pc) return;
-                console.log("Setting remote answer...");
-                await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-                break;
-    
-            case "candidate":
-                if (!pc){
-                    console.log("received candidate signal but.... peerc !");
-                    return;
-                }
-                console.log("Adding ICE candidate...");
-                await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-                break;
-    
-            default:
-                break;
-        }
-    };
-    
-    // Initialize peer connection with common setup for both clients
-    const initializePeerConnection = async (): Promise<RTCPeerConnection | null> => {  //Promise<RTCPeerConnection | null>  : return type of this function (pc or null)
-        console.log("entered in init peer connection function");
-        try{
-            const pc = new RTCPeerConnection({
-                iceServers: [{ urls: "stun:stun.ideasip.com" }],
-              });
-        console.log("WC peer ggogle setup");
-        console.log("RTCPeerConnection instance value......:", pc);
-        pc.onicegatheringstatechange = () => {
-            console.log("ICE Gathering State:", pc.iceGatheringState);
-        };
+        if (data.type === "offer") {
+            console.log("Step 10: Received 'offer', initializing peer connection");
+            const pc = await initializePeerConnection();
 
-        //send ICE data to websocket(and ws send to another client, ICE cntaind IP address and all other data for Peer connection)
-        pc.onicecandidate = (event) => {
-            if (event.candidate) {
-                webSocket?.send(
-                    JSON.stringify({
-                        type: "candidate",
-                        candidate: event.candidate,
-                    })
-                );
-            }
-            console.log("ICE candidate sent");
-        };
-       
-        
-        //Receives remote video and audio streams from the other client and displays them on the webpage.
-        pc.ontrack = (event) => {
-            if (remoteVideoRef.current) {
-                console.log("Received remote track");
-                remoteVideoRef.current.srcObject = event.streams[0];
-            }
-        };
-    
-        setPeerConnection(pc);
-        return pc;
-    }
-    catch(error)
-    {
-        console.log("error occured at try catch : ",error);
-        return null;
-    }
-    };
-    
-    // Start call function for initiating client
-    const startCall = async () => {
-        if (!peerConnection) {
-            await initializePeerConnection();
-        }
-    
-        try {
-            // Access the user's camera and mic
-            console.log("Accessing local media...");
-            const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-            
-            if (localStream.getTracks().length === 0) {
-                console.error("No media tracks found in localStream.");
+            if (!data.offer || !data.offer.sdp || data.offer.type !== "offer") {
+                console.error("Invalid offer received:", data.offer);
                 return;
             }
-    
-            // Check if each track is added successfully
-            localStream.getTracks().forEach((track) => {
-                peerConnection?.addTrack(track, localStream);
-                console.log("Track added:", track);
-            });
-    
-            if (localVideoRef.current) {
-                localVideoRef.current.srcObject = localStream;
-            }
-    
-          
-    
-            // Generate the offer
-            console.log("Creating offer...");
-            const offer = await peerConnection?.createOffer();
-            console.log("Offer created:", offer);
-    
-            // Check if the offer contains SDP
-            if (offer && offer.sdp) {
-                console.log("Generated Offer with SDP:", offer);
-                await peerConnection?.setLocalDescription(offer);
-                webSocket?.send(JSON.stringify({ type: "offer", offer }));
-                console.log("Offer sent:", JSON.stringify({ type: "offer", offer }));
-            } else {
-                console.error("Offer generation failed or returned invalid offer (missing SDP):", offer);
-            }
-        } catch (error) {
-            console.error("Error during call initialization:", error);
+
+            await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            console.log("Step 12: Sending 'answer' signaling message");
+            sendMessage({ type: "answer", answer });
+        } else if (data.type === "answer") {
+            console.log("Step 13: Received 'answer'");
+            const pc = await initializePeerConnection();
+            await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+        } else if (data.type === "candidate") {
+            console.log("Step 14: Received 'candidate'");
+            const pc = await initializePeerConnection();
+            await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+        } else {
+            console.log("Step 15: Unknown signaling message type");
         }
     };
-    
-     return (
+
+    const initializePeerConnection = async (): Promise<RTCPeerConnection> => {
+        console.log("Step 16: Initializing peer connection");
+
+        try {
+            const pc = new RTCPeerConnection({
+                iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            });
+
+            pc.oniceconnectionstatechange = () => {
+                console.log("Step 17: ICE Connection State:", pc.iceConnectionState);
+            };
+
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    console.log("Step 18: Sending ICE candidate");
+                    sendMessage({ type: "candidate", candidate: event.candidate });
+                }
+            };
+
+            pc.ontrack = (event) => {
+                if (remoteVideoRef.current) {
+                    console.log("Step 19: Received remote track");
+                    remoteVideoRef.current.srcObject = event.streams[0];
+                }
+            };
+
+            console.log("Step 20: Peer connection initialized");
+            return pc;
+        } catch (error) {
+            console.error("Error initializing peer connection:", error);
+            throw error;
+        }
+    };
+
+    const startCall = async () => {
+        console.log("Step 21: Starting call");
+
+        try {
+            console.log("Step 22: Initializing peer connection for the call");
+            const pc = await initializePeerConnection();
+
+            console.log("Step 23: Accessing local media");
+            const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+
+            localStream.getTracks().forEach((track) => {
+                pc.addTrack(track, localStream);
+                console.log("Step 24: Track added to peer connection:", track);
+            });
+
+            if (localVideoRef.current) {
+                localVideoRef.current.srcObject = localStream;
+                console.log("Step 25: Local media stream displayed");
+            }
+
+            console.log("Step 26: Creating offer");
+            const offer = await pc.createOffer();
+
+            if (offer && offer.sdp) {
+                console.log("Step 27: Setting local description and sending offer");
+                await pc.setLocalDescription(offer);
+                sendMessage({ type: "offer", offer });
+            }
+        } catch (error) {
+            console.error("Error starting call:", error);
+        }
+    };
+
+    return (
         <div>
             <video ref={localVideoRef} autoPlay muted style={{ width: "300px" }} />
             <video ref={remoteVideoRef} autoPlay style={{ width: "300px" }} />
@@ -196,20 +152,3 @@ const WebSocketComponent: React.FC = () => {
 };
 
 export default WebSocketComponent;
-
-
-
-
-
-
-
-    //function to send a message to websocket server
-   /* const sendMessage = () => {
-        if(ws.current && input.trim())
-        {
-            ws.current.send(input);
-            setInput('');
-        }
-    }; */
-
-    
