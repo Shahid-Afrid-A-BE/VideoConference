@@ -91,9 +91,20 @@ const WebSocketComponent: React.FC = () => {
                 try {
                     await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
                     console.log("Step 3.1: Remote description set for offer.");
+
+                    // Access local media (audio and video)
+                    const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                    localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+
+                    if (localVideoRef.current) {
+                        localVideoRef.current.srcObject = localStream;
+                        console.log("Step 3.2: Local media stream set to local video element.");
+                    }
+
+                    // Create and send answer
                     const answer = await pc.createAnswer();
                     await pc.setLocalDescription(answer);
-                    console.log("Step 3.2: Answer created and sent.");
+                    console.log("Step 3.3: Answer created and sent.");
                     sendMessage({ type: "answer", answer });
 
                     await processCandidateQueue(pc);
