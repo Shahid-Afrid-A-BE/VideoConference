@@ -5,44 +5,34 @@ const WebSocketComponent: React.FC = () => {
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
     const webSocketRef = useRef<WebSocket | null>(null);
     const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-    const candidateQueueRef = useRef<RTCIceCandidateInit[]>([]);           //queue that stores the received ICE candidate until the remote description is set
+    const candidateQueueRef = useRef<RTCIceCandidateInit[]>([]);
 
     useEffect(() => {
-        // Initialize WebSocket connection with frontend client
+        // Step 1: Establish WebSocket Connection
         const ws = new WebSocket('ws://localhost:8090/ws');
         webSocketRef.current = ws;
 
-        //triggered when ws connected
-        ws.onopen = () => console.log("Connected to WebSocket server");
-
-        //triggered when signalling message received from signalling server to client(backend code)
+        ws.onopen = () => console.log("Step 1: WebSocket connection established.");
         ws.onmessage = async (messageEvent) => {
-            const data = JSON.parse(messageEvent.data);
-            console.log("Signaling message received:", data);
-            await handleSignalingMessage(data);                     //handles the signal message
+            console.log("Step 2: Signaling message received:", JSON.parse(messageEvent.data));
+            await handleSignalingMessage(JSON.parse(messageEvent.data));
         };
-
-        //triggered when websocket connection closed    
-        ws.onclose = () => console.log("WebSocket connection closed");
+        ws.onclose = () => console.log("WebSocket connection closed.");
 
         return () => ws.close();
     }, []);
 
-    //@fn : send message to websocket
     const sendMessage = (message: object) => {
         if (webSocketRef.current?.readyState === WebSocket.OPEN) {
             webSocketRef.current.send(JSON.stringify(message));
-            console.log("Signaling message sent:", message);
+            console.log("Step 5: Signaling message sent:", message);
         } else {
             console.error("WebSocket not open. Message not sent:", message);
         }
     };
 
-    //@fn : Establish Peer connection
     const initializePeerConnection = (): RTCPeerConnection => {
-        if (peerConnectionRef.current)
-        {
-           
+        if (peerConnectionRef.current) {
             return peerConnectionRef.current;
         }
 
@@ -50,138 +40,115 @@ const WebSocketComponent: React.FC = () => {
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
         });
 
-        //@event : send ICE candidate to websocket
         pc.onicecandidate = (event) => {
             if (event.candidate) {
-                console.log("Sending ICE candidate:", event.candidate);
+                console.log("Step 6: ICE candidate gathered and sent:", event.candidate);
                 sendMessage({ type: "candidate", candidate: event.candidate });
             } else {
-                console.log("All ICE candidates sent");
+                console.log("All ICE candidates have been gathered.");
             }
         };
 
-        //@event : set the remote video in <video> element
         pc.ontrack = (event) => {
-            
-            console.log("Received remote track:", event.streams[0]);
-            
-            // Check if we have video tracks
-            if (event.streams[0]) 
-            {
-             const videoTracks = event.streams[0].getVideoTracks();
-                if (videoTracks.length > 0) {
-                    console.log("Remote video track found.");
-                    if (remoteVideoRef.current) { //if remoteVideoRef is et to DOM <element>
-                        remoteVideoRef.current.srcObject = event.streams[0];    //display video in DOM vide element referenced by remoteVideoRef
-                    }
-                } else {
-                    console.error("No video track found in the remote stream.");
+            console.log("Step 7: Remote video track received.");
+            if (event.streams[0]) {
+                console.log("Step 7.1: Setting remote video track.");
+                if (remoteVideoRef.current) {
+                    remoteVideoRef.current.srcObject = event.streams[0];
                 }
-            } else {
-                console.error("No streams found on the remote track.");
             }
         };
 
-        //@event : triggered if the state of ice connection changed (connected,.....)
-        pc.oniceconnectionstatechange = async () => {
-            console.log("ICE Connection State:", pc.iceConnectionState);
-            if (pc.iceConnectionState === "connected") {
-                console.log("Processing queued ICE candidates");
-                
-            }
+        pc.oniceconnectionstatechange = () => {
+            console.log("ICE Connection State changed:", pc.iceConnectionState);
         };
 
         peerConnectionRef.current = pc;
         return pc;
     };
 
-    //@fn : process the ICE candidate waiting in the queue(wait until remote description is set)
     const processCandidateQueue = async (pc: RTCPeerConnection) => {
-        console.log("Processing queued candidates");
+        console.log("Step 6.1: Processing queued ICE candidates...");
         while (candidateQueueRef.current.length > 0) {
             const candidate = candidateQueueRef.current.shift();
             if (candidate) {
-                console.log("Adding queued candidate:", candidate);
-                await pc.addIceCandidate(new RTCIceCandidate(candidate));   //add candidate to RTC peer connection
+                console.log("Adding queued ICE candidate:", candidate);
+                await pc.addIceCandidate(new RTCIceCandidate(candidate));
             }
         }
     };
 
-    //@fn : handles the client's incoming singnaling messages from webscoket(offer,candidate,answer)
     const handleSignalingMessage = async (data: any) => {
         const pc = initializePeerConnection();
 
         switch (data.type) {
-        case "offer":
-            console.log("Received offer");
-            try {
-                await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-                console.log("Remote description set for offer");
-                const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
-                sendMessage({ type: "answer", answer });
-
-                // Process queued candidates after setting remote description
-                await processCandidateQueue(pc);
-            } catch (error) {
-                console.error("Error setting remote description for offer:", error);
-            }
-            break;
-
-        case "answer":
-            console.log("Received answer");
-            try {
-                if (pc.signalingState === "have-local-offer") {
-                    await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-                    console.log("Remote description set for answer");
-
-                    // Process queued candidates
-                    await processCandidateQueue(pc);
-                } else {
-                    console.error("Invalid state for setting remote answer");
-                }
-            } catch (error) {
-                console.error("Error setting remote description for answer:", error);
-            }
-            break;
-
-        case "candidate":
-            console.log("Received ICE candidate");
-            if (pc.remoteDescription) {
+            case "offer":
+                console.log("Step 3: Offer received from signaling server.");
                 try {
-                    console.log("Adding ICE candidate directly:", data.candidate);
-                    await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-                } catch (error) {
-                    console.error("Error adding ICE candidate:", error);
-                }
-            } else {
-                console.log("Remote description not set yet. Queueing candidate.");
-                candidateQueueRef.current.push(data.candidate);
-            }
-            break;
+                    await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+                    console.log("Step 3.1: Remote description set for offer.");
+                    const answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
+                    console.log("Step 3.2: Answer created and sent.");
+                    sendMessage({ type: "answer", answer });
 
-        default:
-            console.log("Unknown signaling message type:", data.type);
+                    await processCandidateQueue(pc);
+                } catch (error) {
+                    console.error("Error handling offer:", error);
+                }
+                break;
+
+            case "answer":
+                console.log("Step 4: Answer received from signaling server.");
+                try {
+                    if (pc.signalingState === "have-local-offer") {
+                        await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+                        console.log("Step 4.1: Remote description set for answer.");
+                        await processCandidateQueue(pc);
+                    } else {
+                        console.error("Invalid state for setting remote answer.");
+                    }
+                } catch (error) {
+                    console.error("Error handling answer:", error);
+                }
+                break;
+
+            case "candidate":
+                console.log("Step 6.2: ICE candidate received.");
+                if (pc.remoteDescription) {
+                    try {
+                        console.log("Adding ICE candidate directly.");
+                        await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+                    } catch (error) {
+                        console.error("Error adding ICE candidate:", error);
+                    }
+                } else {
+                    console.log("Remote description not set yet. Queueing candidate.");
+                    candidateQueueRef.current.push(data.candidate);
+                }
+                break;
+
+            default:
+                console.log("Unknown signaling message type:", data.type);
         }
     };
 
-    //@fn : intiate video call
     const startCall = async () => {
         const pc = initializePeerConnection();
 
         try {
-            console.log("Local Media is accessing");
-            const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });    //get local device video and audio
-            localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));                    //add the media(video and audio) to peer connection
+            console.log("Step 2: Starting call. Accessing local media...");
+            const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
 
-            // Attach local stream to local video element
             if (localVideoRef.current) {
                 localVideoRef.current.srcObject = localStream;
-                console.log("Local media is set to src object");
+                console.log("Step 2.1: Local media stream set to local video element.");
             }
 
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
+            console.log("Step 2.2: Offer created and sent.");
             sendMessage({ type: "offer", offer });
         } catch (error) {
             console.error("Error during call initialization:", error);
@@ -190,8 +157,8 @@ const WebSocketComponent: React.FC = () => {
 
     return (
         <div>
-            <video ref={localVideoRef} autoPlay muted style={{ width: "300px",border: "2px solid black",borderRadius: "10px" }} />
-            <video ref={remoteVideoRef} autoPlay style={{ width: "300px",border: "2px solid black",borderRadius: "10px" }} />
+            <video ref={localVideoRef} autoPlay muted style={{ width: "300px", border: "2px solid black", borderRadius: "10px" }} />
+            <video ref={remoteVideoRef} autoPlay style={{ width: "300px", border: "2px solid black", borderRadius: "10px" }} />
             <button onClick={startCall}>Start Call</button>
         </div>
     );
