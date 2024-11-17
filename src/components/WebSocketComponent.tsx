@@ -6,6 +6,7 @@ const WebSocketComponent: React.FC = () => {
     const webSocketRef = useRef<WebSocket | null>(null);
     const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
     const candidateQueueRef = useRef<RTCIceCandidateInit[]>([]);
+    const hasSentIceCandidateRef = useRef<boolean>(false); // Flag to track if an ICE candidate has been sent
 
     useEffect(() => {
         // Step 1: Establish WebSocket Connection
@@ -39,12 +40,14 @@ const WebSocketComponent: React.FC = () => {
         const pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
         });
-        console.log("step 2 : peer connection intialized");
+        console.log("step 2 : peer connection initialized");
+
         pc.onicecandidate = (event) => {
-            if (event.candidate) {
+            if (event.candidate && !hasSentIceCandidateRef.current) {
                 console.log("Step 6: ICE candidate gathered and sent:", event.candidate);
                 sendMessage({ type: "candidate", candidate: event.candidate });
-            } else {
+                hasSentIceCandidateRef.current = true; // Set the flag after sending the first ICE candidate
+            } else if (!event.candidate) {
                 console.log("All ICE candidates have been gathered.");
             }
         };
@@ -69,11 +72,12 @@ const WebSocketComponent: React.FC = () => {
 
     const processCandidateQueue = async (pc: RTCPeerConnection) => {
         console.log("Step 6.1: Processing queued ICE candidates...");
-        while (candidateQueueRef.current.length > 0) {
-            const candidate = candidateQueueRef.current.shift();
-            if (candidate) {
-                console.log("Adding queued ICE candidate:", candidate);
-                await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        if (candidateQueueRef.current.length > 0) {
+            // Only process the last candidate in the queue
+            const lastCandidate = candidateQueueRef.current.pop();
+            if (lastCandidate) {
+                console.log("Adding the last ICE candidate:", lastCandidate);
+                await pc.addIceCandidate(new RTCIceCandidate(lastCandidate));
             }
         }
     };
