@@ -39,7 +39,7 @@ const WebSocketComponent: React.FC = () => {
         const pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
         });
-
+        console.log("step 2 : peer connection intialized");
         pc.onicecandidate = (event) => {
             if (event.candidate) {
                 console.log("Step 6: ICE candidate gathered and sent:", event.candidate);
@@ -117,7 +117,7 @@ const WebSocketComponent: React.FC = () => {
                 console.log("Step 6.2: ICE candidate received.");
                 if (pc.remoteDescription) {
                     try {
-                        console.log("Adding ICE candidate directly.");
+                        console.log("Adding ICE candidate to peer connection.");
                         await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
                     } catch (error) {
                         console.error("Error adding ICE candidate:", error);
