@@ -5,26 +5,30 @@ const WebSocketComponent: React.FC = () => {
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
     const webSocketRef = useRef<WebSocket | null>(null);
     const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-    const candidateQueueRef = useRef<RTCIceCandidateInit[]>([]); // Replacing useState
+    const candidateQueueRef = useRef<RTCIceCandidateInit[]>([]);           //queue that stores the received ICE candidate until the remote description is set
 
     useEffect(() => {
-        // Initialize WebSocket
+        // Initialize WebSocket connection with frontend client
         const ws = new WebSocket('ws://localhost:8090/ws');
         webSocketRef.current = ws;
 
+        //triggered when ws connected
         ws.onopen = () => console.log("Connected to WebSocket server");
 
+        //triggered when signalling message received from signalling server to client(backend code)
         ws.onmessage = async (messageEvent) => {
             const data = JSON.parse(messageEvent.data);
             console.log("Signaling message received:", data);
-            await handleSignalingMessage(data);
+            await handleSignalingMessage(data);                     //handles the signal message
         };
 
+        //triggered when websocket connection closed    
         ws.onclose = () => console.log("WebSocket connection closed");
 
         return () => ws.close();
     }, []);
 
+    //@fn : send message to websocket
     const sendMessage = (message: object) => {
         if (webSocketRef.current?.readyState === WebSocket.OPEN) {
             webSocketRef.current.send(JSON.stringify(message));
@@ -34,6 +38,7 @@ const WebSocketComponent: React.FC = () => {
         }
     };
 
+    //@fn : Establish Peer connection
     const initializePeerConnection = (): RTCPeerConnection => {
         if (peerConnectionRef.current) return peerConnectionRef.current;
 
@@ -41,6 +46,7 @@ const WebSocketComponent: React.FC = () => {
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
         });
 
+        //@event : send ICE candidate to websocket
         pc.onicecandidate = (event) => {
             if (event.candidate) {
                 console.log("Sending ICE candidate:", event.candidate);
@@ -50,16 +56,19 @@ const WebSocketComponent: React.FC = () => {
             }
         };
 
+        //@event : set the remote video in <video> element
         pc.ontrack = (event) => {
+            
             console.log("Received remote track:", event.streams[0]);
-
-            if (event.streams[0]) {
-                // Check if we have video tracks
-                const videoTracks = event.streams[0].getVideoTracks();
+            
+            // Check if we have video tracks
+            if (event.streams[0]) 
+            {
+             const videoTracks = event.streams[0].getVideoTracks();
                 if (videoTracks.length > 0) {
                     console.log("Remote video track found.");
-                    if (remoteVideoRef.current) {
-                        remoteVideoRef.current.srcObject = event.streams[0];
+                    if (remoteVideoRef.current) { //if remoteVideoRef is et to DOM <element>
+                        remoteVideoRef.current.srcObject = event.streams[0];    //display video in DOM vide element referenced by remoteVideoRef
                     }
                 } else {
                     console.error("No video track found in the remote stream.");
@@ -69,11 +78,12 @@ const WebSocketComponent: React.FC = () => {
             }
         };
 
+        //@event : triggered if the state of ice connection changed (connected,.....)
         pc.oniceconnectionstatechange = async () => {
             console.log("ICE Connection State:", pc.iceConnectionState);
             if (pc.iceConnectionState === "connected") {
                 console.log("Processing queued ICE candidates");
-                await processCandidateQueue(pc);
+                
             }
         };
 
@@ -81,17 +91,19 @@ const WebSocketComponent: React.FC = () => {
         return pc;
     };
 
+    //@fn : process the ICE candidate waiting in the queue(wait until remote description is set)
     const processCandidateQueue = async (pc: RTCPeerConnection) => {
         console.log("Processing queued candidates");
         while (candidateQueueRef.current.length > 0) {
             const candidate = candidateQueueRef.current.shift();
             if (candidate) {
                 console.log("Adding queued candidate:", candidate);
-                await pc.addIceCandidate(new RTCIceCandidate(candidate));
+                await pc.addIceCandidate(new RTCIceCandidate(candidate));   //add candidate to RTC peer connection
             }
         }
     };
 
+    //@fn : handles the client's incoming singnaling messages from webscoket(offer,candidate,answer)
     const handleSignalingMessage = async (data: any) => {
         const pc = initializePeerConnection();
 
@@ -149,12 +161,14 @@ const WebSocketComponent: React.FC = () => {
         }
     };
 
+    //@fn : intiate video call
     const startCall = async () => {
         const pc = initializePeerConnection();
 
         try {
-            const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-            localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+            
+            const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });    //get local device video and audio
+            localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));                    //add the media(video and audio) to peer connection
 
             // Attach local stream to local video element
             if (localVideoRef.current) {
@@ -171,8 +185,8 @@ const WebSocketComponent: React.FC = () => {
 
     return (
         <div>
-            <video ref={localVideoRef} autoPlay muted style={{ width: "300px" }} />
-            <video ref={remoteVideoRef} autoPlay style={{ width: "300px" }} />
+            <video ref={localVideoRef} autoPlay muted style={{ width: "300px",border: "2px solid black",borderRadius: "10px" }} />
+            <video ref={remoteVideoRef} autoPlay style={{ width: "300px",border: "2px solid black",borderRadius: "10px" }} />
             <button onClick={startCall}>Start Call</button>
         </div>
     );
