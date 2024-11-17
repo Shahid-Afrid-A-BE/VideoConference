@@ -40,7 +40,11 @@ const WebSocketComponent: React.FC = () => {
 
     //@fn : Establish Peer connection
     const initializePeerConnection = (): RTCPeerConnection => {
-        if (peerConnectionRef.current) return peerConnectionRef.current;
+        if (peerConnectionRef.current)
+        {
+           
+            return peerConnectionRef.current;
+        }
 
         const pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -166,13 +170,14 @@ const WebSocketComponent: React.FC = () => {
         const pc = initializePeerConnection();
 
         try {
-            
+            console.log("Local Media is accessing");
             const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });    //get local device video and audio
             localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));                    //add the media(video and audio) to peer connection
 
             // Attach local stream to local video element
             if (localVideoRef.current) {
                 localVideoRef.current.srcObject = localStream;
+                console.log("Local media is set to src object");
             }
 
             const offer = await pc.createOffer();
